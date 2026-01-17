@@ -5,15 +5,13 @@ app.use(express.json());
 // In-memory storage for basket data
 let basketData = {};
 
-// ESP32 sends data here
 app.post('/updateBasket', (req, res) => {
-  const { basket_id, tag_id, weight } = req.body;
+  const { basket_id, display_id, price, quantity } = req.body;
   if (!basketData[basket_id]) basketData[basket_id] = [];
-  basketData[basket_id].push({ tag_id, weight });
+  basketData[basket_id].push({ display_id, price, quantity });
   res.json({ status: 'success' });
 });
 
-// WordPress fetches data here
 app.get('/getBasket/:id', (req, res) => {
   const basket_id = req.params.id;
   res.json(basketData[basket_id] || []);
