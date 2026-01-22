@@ -1,81 +1,83 @@
-// server.js
 const express = require('express');
-const cors = require('cors');
+const QRCode = require('qrcode');
 const fs = require('fs');
 
-const app = express();
 const PORT = process.env.PORT || 3000;
+const app = express();
 
-app.use(cors());
 app.use(express.json());
 
-// In-memory basket storage
-let basketData = {};
-// In-memory archive
-let basketArchive = {};
+const baskets = new Map();
+let basketIndex = 0;
 
-// Update basket (add or update item)
-app.post('/updateBasket', (req, res) => {
-  const { basket_id, display_id, price, quantity } = req.body;
+// Add or update item in basket
+app.post('/basket/add', (req, res) => {
+    const { basket_id, display_id, price, quantity } = req.body;
 
-  if (!basket_id || !display_id || !price || !quantity) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
+    if (!display_id || !price || !quantity) {
+        return res.status(400).json({ error: 'Missing required fields' });
+    }
 
-  if (!basketData[basket_id]) {
-    basketData[basket_id] = [];
-  }
+    if (!baskets.has(basket_id)) {
+        baskets.set(basket_id, []);
+    }
 
-  // Check if item already exists
-  const existingItem = basketData[basket_id].find(item => item.display_id === display_id);
-  if (existingItem) {
-    existingItem.quantity += quantity;
-  } else {
-    basketData[basket_id].push({ display_id, price, quantity });
-  }
+    const basket = baskets.get(basket_id);
+    const existingItem = basket.find(item => item.display_id === display_id);
 
-  res.json({ status: 'updated', basket: basketData[basket_id] });
+    if (existingItem) {
+        existingItem.quantity += quantity;
+    } else {
+        basket.push({ display_id, price, quantity });
+    }
+
+    res.json({ status: 'updated', items: baskets.get(basket_id) });
 });
 
-// Get basket contents
-app.get('/getbasket/:id', (req, res) => {
-  const basket_id = req.params.id;
-  const items = basketData[basket_id] || [];
-  res.json({ items });
+// View basket contents
+app.get('/basket/view/:id', (req, res) => {
+    const basket_id = req.params.id;
+    const items = baskets.get(basket_id) || [];
+    res.json({ items });
 });
 
+// Generate QR code for basket
+app.get('/basket/qr/:id', async (req, res) => {
+    const basket_id = req.params.id;
+    const items = baskets.get(basket_id) || [];
+    const payload = { basket_id, items };
 
-// Checkout basket: archive + reset
-app.post('/checkoutBasket/:id', (req, res) => {
-  const basket_id = req.params.id;
-  if (basketData[basket_id]) {
-    const logEntry = {
-      basket_id,
-      items: basketData[basket_id],
-      total: basketData[basket_id].reduce((sum, item) => sum + item.price * item.quantity, 0),
-      timestamp: new Date().toISOString()
-    };
+    try {
+        const qr = await QRCode.toDataURL(JSON.stringify(payload));
+        res.json({ qr });
+    } catch (err) {
+        res.status(500).json({ error: 'QR generation failed' });
+    }
+});
 
-    // Archive in memory
-    basketArchive[basket_id] = logEntry;
+// Checkout basket
+app.post('/basket/checkout', (req, res) => {
+    const basket_id = req.body.basket_id;
+    const items = baskets.get(basket_id) || [];
 
-    // Append to file (demo persistence)
-    fs.appendFileSync('basketLogs.json', JSON.stringify(logEntry) + "\n");
+    const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    baskets.set(basket_id, []);
+    basketIndex++;
 
-    // Reset basket
-    basketData[basket_id] = [];
+    fs.appendFileSync('checkout.json', JSON.stringify({ basket_id, total }) + "\n");
+
+    if (!items.length) {
+        return res.status(404).json({ error: 'Basket not found' });
+    }
 
     res.json({ status: 'checked out', basket_id, archived: true });
-  } else {
-    res.status(404).json({ error: 'Basket not found' });
-  }
 });
 
-// Get archived baskets (optional route for viewing logs)
-app.get('/archivedBaskets', (req, res) => {
-  res.json(basketArchive);
+// View basket index
+app.get('/baskets/index', (req, res) => {
+    res.json({ index: basketIndex });
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
