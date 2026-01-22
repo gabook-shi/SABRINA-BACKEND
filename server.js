@@ -1,9 +1,15 @@
 const express = require('express');
 const QRCode = require('qrcode');
 const fs = require('fs');
+const cors = require('cors');
 
 const PORT = process.env.PORT || 3000;
 const app = express();
+
+// Allow GitHub Pages frontend
+app.use(cors({
+  origin: 'https://gabook-shi.github.io'
+}));
 
 app.use(express.json());
 
@@ -44,7 +50,12 @@ app.get('/basket/view/:id', (req, res) => {
 // Generate QR code for basket
 app.get('/basket/qr/:id', async (req, res) => {
     const basket_id = req.params.id;
-    const items = baskets.get(basket_id) || [];
+    const items = baskets.get(basket_id);
+
+    if (!items || items.length === 0) {
+        return res.status(404).json({ error: 'Basket not found or empty' });
+    }
+
     const payload = { basket_id, items };
 
     try {
@@ -58,17 +69,17 @@ app.get('/basket/qr/:id', async (req, res) => {
 // Checkout basket
 app.post('/basket/checkout', (req, res) => {
     const basket_id = req.body.basket_id;
-    const items = baskets.get(basket_id) || [];
+    const items = baskets.get(basket_id);
+
+    if (!items || items.length === 0) {
+        return res.status(404).json({ error: 'Basket not found or empty' });
+    }
 
     const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     baskets.set(basket_id, []);
     basketIndex++;
 
     fs.appendFileSync('checkout.json', JSON.stringify({ basket_id, total }) + "\n");
-
-    if (!items.length) {
-        return res.status(404).json({ error: 'Basket not found' });
-    }
 
     res.json({ status: 'checked out', basket_id, archived: true });
 });
@@ -81,3 +92,4 @@ app.get('/baskets/index', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
