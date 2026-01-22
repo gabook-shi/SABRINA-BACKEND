@@ -38,14 +38,12 @@ app.post('/updateBasket', (req, res) => {
 });
 
 // Get basket contents
-app.get('/getBasket/:id', (req, res) => {
+app.get('/getbasket/:id', (req, res) => {
   const basket_id = req.params.id;
-  if (basketData[basket_id]) {
-    res.json(basketData[basket_id]);
-  } else {
-    res.json([]);
-  }
+  const items = basketData[basket_id] || [];
+  res.json({ items });
 });
+
 
 // Checkout basket: archive + reset
 app.post('/checkoutBasket/:id', (req, res) => {
