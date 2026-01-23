@@ -88,6 +88,20 @@ app.post('/basket/checkout', (req, res) => {
   res.json({ status: 'checked out', basket_id, archived: true });
 });
 
+// ✅ Clear basket without checkout
+app.post('/basket/clear', (req, res) => {
+  const basket_id = req.body.basket_id;
+
+  if (!baskets.has(basket_id)) {
+    return res.status(404).json({ error: 'Basket not found' });
+  }
+
+  baskets.set(basket_id, []);
+  seenTags.set(basket_id, new Set());
+
+  res.json({ status: 'cleared', basket_id });
+});
+
 // ✅ View basket index
 app.get('/baskets/index', (req, res) => {
   res.json({ index: basketIndex });
@@ -96,4 +110,3 @@ app.get('/baskets/index', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
-
