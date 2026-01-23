@@ -14,30 +14,33 @@ app.use(cors({
 app.use(express.json());
 
 const baskets = new Map();
+const seenTags = new Map(); // ✅ Track seen tags per basket
 let basketIndex = 0;
 
 // Add or update item in basket
 app.post('/basket/add', (req, res) => {
     const { basket_id, display_id, price, quantity } = req.body;
 
-    if (!display_id || !price || !quantity) {
+    if (!basket_id || !display_id || !price || !quantity) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
 
     if (!baskets.has(basket_id)) {
         baskets.set(basket_id, []);
+        seenTags.set(basket_id, new Set()); // ✅ Initialize seen tags
     }
 
     const basket = baskets.get(basket_id);
-    const existingItem = basket.find(item => item.display_id === display_id);
+    const seen = seenTags.get(basket_id);
 
-    if (existingItem) {
-        existingItem.quantity += quantity;
-    } else {
-        basket.push({ display_id, price, quantity });
+    if (seen.has(display_id)) {
+        return res.status(200).json({ status: 'duplicate_ignored', message: 'Tag already added', items: basket });
     }
 
-    res.json({ status: 'updated', items: baskets.get(basket_id) });
+    basket.push({ display_id, price, quantity });
+    seen.add(display_id); // ✅ Mark tag as seen
+
+    res.json({ status: 'added', items: basket });
 });
 
 // View basket contents
@@ -77,6 +80,7 @@ app.post('/basket/checkout', (req, res) => {
 
     const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     baskets.set(basket_id, []);
+    seenTags.set(basket_id, new Set()); // ✅ Reset seen tags after checkout
     basketIndex++;
 
     fs.appendFileSync('checkout.json', JSON.stringify({ basket_id, total }) + "\n");
@@ -88,6 +92,11 @@ app.post('/basket/checkout', (req, res) => {
 app.get('/baskets/index', (req, res) => {
     res.json({ index: basketIndex });
 });
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
+
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
