@@ -1,112 +1,53 @@
-const express = require('express');
-const QRCode = require('qrcode');
-const fs = require('fs');
-const cors = require('cors');
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
 
-const PORT = process.env.PORT || 3000;
 const app = express();
-
-// Allow frontend from GitHub Pages
-app.use(cors({
-  origin: 'https://gabook-shi.github.io'
-}));
-
+app.use(cors());
 app.use(express.json());
 
-const baskets = new Map();
-const seenTags = new Map();
-let basketIndex = 0;
+// CONNECT TO MONGODB
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch(err => console.error("❌ MongoDB Error:", err));
 
-// ✅ Add or update item in basket
-app.post('/basket/add', (req, res) => {
-  const { basket_id, display_id, price, quantity } = req.body;
+// BASKET SCHEMA
+const Basket = mongoose.model("Basket", new mongoose.Schema({
+  basketId: String,
+  items: [
+    {
+      uidItem: String,
+      itemName: String,
+      itemPrice: Number
+    }
+  ],
+  status: { type: String, default: "PENDING" }
+}));
 
-  if (!basket_id || !display_id || !price || !quantity) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
+// ADD / UPDATE BASKET
+app.post("/basket/update", async (req, res) => {
+  const { basketId, items } = req.body;
 
-  if (!baskets.has(basket_id)) {
-    baskets.set(basket_id, []);
-    seenTags.set(basket_id, new Set());
-  }
+  const basket = await Basket.findOneAndUpdate(
+    { basketId },
+    { items },
+    { upsert: true, new: true }
+  );
 
-  const basket = baskets.get(basket_id);
-  const seen = seenTags.get(basket_id);
-
-  if (seen.has(display_id)) {
-    return res.status(200).json({ status: 'duplicate_ignored', message: 'Tag already added', items: basket });
-  }
-
-  basket.push({ display_id, price, quantity });
-  seen.add(display_id);
-
-  res.json({ status: 'added', items: basket });
+  res.json(basket);
 });
 
-// ✅ View basket contents
-app.get('/basket/view/:id', (req, res) => {
-  const basket_id = req.params.id;
-  const items = baskets.get(basket_id) || [];
-  res.json({ items });
+// CHECKOUT
+app.post("/basket/checkout", async (req, res) => {
+  const { basketId } = req.body;
+
+  await Basket.updateOne(
+    { basketId },
+    { status: "PAID" }
+  );
+
+  res.json({ success: true });
 });
 
-// ✅ Generate QR code for basket
-app.get('/basket/qr/:id', async (req, res) => {
-  const basket_id = req.params.id;
-  const items = baskets.get(basket_id);
+app.listen(3000, () => console.log("🚀 Server running"));
 
-  if (!items || items.length === 0) {
-    return res.status(404).json({ error: 'Basket not found or empty' });
-  }
-
-  const payload = { basket_id, items };
-
-  try {
-    const qr = await QRCode.toDataURL(JSON.stringify(payload));
-    res.json({ qr });
-  } catch (err) {
-    res.status(500).json({ error: 'QR generation failed' });
-  }
-});
-
-// ✅ Checkout basket
-app.post('/basket/checkout', (req, res) => {
-  const basket_id = req.body.basket_id;
-  const items = baskets.get(basket_id);
-
-  if (!items || items.length === 0) {
-    return res.status(404).json({ error: 'Basket not found or empty' });
-  }
-
-  const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  baskets.set(basket_id, []);
-  seenTags.set(basket_id, new Set());
-  basketIndex++;
-
-  fs.appendFileSync('checkout.json', JSON.stringify({ basket_id, total }) + "\n");
-
-  res.json({ status: 'checked out', basket_id, archived: true });
-});
-
-// ✅ Clear basket without checkout
-app.post('/basket/clear', (req, res) => {
-  const basket_id = req.body.basket_id;
-
-  if (!baskets.has(basket_id)) {
-    return res.status(404).json({ error: 'Basket not found' });
-  }
-
-  baskets.set(basket_id, []);
-  seenTags.set(basket_id, new Set());
-
-  res.json({ status: 'cleared', basket_id });
-});
-
-// ✅ View basket index
-app.get('/baskets/index', (req, res) => {
-  res.json({ index: basketIndex });
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
