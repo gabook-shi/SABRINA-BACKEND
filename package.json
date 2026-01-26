@@ -8,8 +8,8 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "qrcode": "^1.5.1"
-    "Mongoose": "^8.0.0"
+    "qrcode": "^1.5.1",
+    "mongoose": "^8.0.0"
   }
 }
 
