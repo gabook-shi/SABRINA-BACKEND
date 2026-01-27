@@ -17,9 +17,12 @@ mongoose.connect(process.env.MONGO_URI)
    ITEM CATALOG (UID → ITEM)
 ========================= */
 const ITEM_CATALOG = {
-  "935B4A05": { name: "Coca Cola 330ml", price: 35 },
+  "935B4A5": { name: "Coca Cola 330ml", price: 35 },
   "C3233927": { name: "Potato Chips", price: 25 },
-  "41896316": { name: "Chocolate Bar", price: 20 }
+  "41896316": { name: "Chocolate Bar", price: 20 },
+  "1EB380": { name: "Banana", price: 35 },
+  "F1C3A60": { name: "Apple", price: 75 },
+  "13828E14": { name: "Coca Cola 100ml", price: 25 }
 };
 
 /* =========================
