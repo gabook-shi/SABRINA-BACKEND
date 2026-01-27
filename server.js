@@ -28,7 +28,11 @@ const ITEM_CATALOG = {
 const BasketSchema = new mongoose.Schema({
   basketId: String,
   items: [
-    { uidItem: String, itemName: String, itemPrice: Number }
+    {
+      uidItem: String,
+      itemName: String,
+      itemPrice: Number
+    }
   ],
   status: { type: String, default: "PENDING" }
 });
@@ -47,13 +51,18 @@ const AuditLog = mongoose.model("AuditLog", AuditLogSchema);
    HELPER: BUILD ITEMS FROM UID LIST
 ========================= */
 function buildItemsFromUIDs(uidList) {
-  return uidList
-    .map(uid => {
-      const product = ITEM_CATALOG[uid];
-      if (!product) return null;
-      return { uidItem: uid, itemName: product.name, itemPrice: product.price };
-    })
-    .filter(Boolean);
+  const items = [];
+  uidList.forEach(uid => {
+    const product = ITEM_CATALOG[uid];
+    if (product) {
+      items.push({
+        uidItem: uid,
+        itemName: product.name,
+        itemPrice: product.price
+      });
+    }
+  });
+  return items;
 }
 
 /* =========================
@@ -62,8 +71,9 @@ function buildItemsFromUIDs(uidList) {
 app.post("/basket/update", async (req, res) => {
   try {
     const { basketId, uids } = req.body;
-    if (!basketId || !Array.isArray(uids))
+    if (!basketId || !Array.isArray(uids)) {
       return res.status(400).json({ error: "Invalid payload" });
+    }
 
     const items = buildItemsFromUIDs(uids);
 
@@ -73,8 +83,13 @@ app.post("/basket/update", async (req, res) => {
       { upsert: true, new: true }
     );
 
-    await AuditLog.create({ basketId, action: "UPDATE", items });
-    res.status(200).json(basket);
+    await AuditLog.create({
+      basketId,
+      action: "UPDATE",
+      items
+    });
+
+    res.json(basket);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -82,13 +97,13 @@ app.post("/basket/update", async (req, res) => {
 });
 
 /* =========================
-   CASHIER → GET BASKET
+   CUSTOMER / CASHIER → GET BASKET
 ========================= */
 app.get("/basket/:basketId", async (req, res) => {
   try {
     const basket = await Basket.findOne({ basketId: req.params.basketId });
     if (!basket) return res.status(404).json({ error: "Basket not found" });
-    res.status(200).json(basket);
+    res.json(basket);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -107,8 +122,13 @@ app.post("/basket/decision", async (req, res) => {
     basket.status = paid ? "PAID" : "CANCELLED";
     await basket.save();
 
-    await AuditLog.create({ basketId, action: paid ? "PAID" : "CANCELLED", items: basket.items });
-    res.status(200).json({ success: true });
+    await AuditLog.create({
+      basketId,
+      action: paid ? "PAID" : "CANCELLED",
+      items: basket.items
+    });
+
+    res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -124,20 +144,25 @@ app.post("/basket/checkout", async (req, res) => {
     const basket = await Basket.findOne({ basketId });
     if (!basket) return res.status(404).json({ error: "Basket not found" });
 
-    // Mark PAID if not already
-    if (basket.status !== "PAID") {
-      basket.status = "PAID";
-      await basket.save();
+    // Mark basket as PAID
+    basket.status = "PAID";
+    await basket.save();
 
-      await AuditLog.create({ basketId, action: "PAID", items: basket.items });
-    }
-
-    const qrData = JSON.stringify({
+    // Audit log
+    await AuditLog.create({
       basketId,
+      action: "PAID",
+      items: basket.items
+    });
+
+    // QR data includes items for cashier POS
+    const qrData = JSON.stringify({
+      basketId: basket.basketId,
+      items: basket.items,
       total: basket.items.reduce((sum, i) => sum + i.itemPrice, 0)
     });
 
-    res.status(200).json({ qrData });
+    res.json({ qrData });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -150,7 +175,7 @@ app.post("/basket/checkout", async (req, res) => {
 app.get("/audit", async (req, res) => {
   try {
     const logs = await AuditLog.find().sort({ timestamp: -1 }).limit(100);
-    res.status(200).json(logs);
+    res.json(logs);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
