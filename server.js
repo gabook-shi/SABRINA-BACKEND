@@ -137,12 +137,49 @@ app.post("/basket/decision", async (req, res) => {
 });
 
 /* =========================
+   CUSTOMER CHECKOUT → GENERATE QR AND MARK PAID
+========================= */
+app.post("/basket/checkout", async (req, res) => {
+  try {
+    const { basketId } = req.body;
+
+    // Find the basket
+    const basket = await Basket.findOne({ basketId });
+    if (!basket) return res.status(404).json({ error: "Basket not found" });
+
+    // Mark basket as PAID
+    basket.status = "PAID";
+    await basket.save();
+
+    // Create audit log
+    await AuditLog.create({
+      basketId,
+      action: "PAID",
+      items: basket.items
+    });
+
+    // Generate QR data (can be JSON with basketId and total)
+    const qrData = JSON.stringify({
+      basketId,
+      total: basket.items.reduce((sum, i) => sum + i.itemPrice, 0)
+    });
+
+    // Return QR data to frontend
+    res.json({ qrData });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/* =========================
    OPTIONAL: VIEW AUDIT LOGS
 ========================= */
 app.get("/audit", async (req, res) => {
   const logs = await AuditLog.find().sort({ timestamp: -1 }).limit(100);
   res.json(logs);
 });
+
 
 /* =========================
    SERVER
