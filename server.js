@@ -28,11 +28,7 @@ const ITEM_CATALOG = {
 const BasketSchema = new mongoose.Schema({
   basketId: String,
   items: [
-    {
-      uidItem: String,
-      itemName: String,
-      itemPrice: Number
-    }
+    { uidItem: String, itemName: String, itemPrice: Number }
   ],
   status: { type: String, default: "PENDING" }
 });
@@ -66,10 +62,8 @@ function buildItemsFromUIDs(uidList) {
 app.post("/basket/update", async (req, res) => {
   try {
     const { basketId, uids } = req.body;
-
-    if (!basketId || !Array.isArray(uids)) {
+    if (!basketId || !Array.isArray(uids))
       return res.status(400).json({ error: "Invalid payload" });
-    }
 
     const items = buildItemsFromUIDs(uids);
 
@@ -79,12 +73,7 @@ app.post("/basket/update", async (req, res) => {
       { upsert: true, new: true }
     );
 
-    await AuditLog.create({
-      basketId,
-      action: "UPDATE",
-      items
-    });
-
+    await AuditLog.create({ basketId, action: "UPDATE", items });
     res.status(200).json(basket);
   } catch (err) {
     console.error(err);
@@ -118,12 +107,7 @@ app.post("/basket/decision", async (req, res) => {
     basket.status = paid ? "PAID" : "CANCELLED";
     await basket.save();
 
-    await AuditLog.create({
-      basketId,
-      action: paid ? "PAID" : "CANCELLED",
-      items: basket.items
-    });
-
+    await AuditLog.create({ basketId, action: paid ? "PAID" : "CANCELLED", items: basket.items });
     res.status(200).json({ success: true });
   } catch (err) {
     console.error(err);
@@ -140,16 +124,14 @@ app.post("/basket/checkout", async (req, res) => {
     const basket = await Basket.findOne({ basketId });
     if (!basket) return res.status(404).json({ error: "Basket not found" });
 
-    basket.status = "PAID";
-    await basket.save();
+    // Mark PAID if not already
+    if (basket.status !== "PAID") {
+      basket.status = "PAID";
+      await basket.save();
 
-    await AuditLog.create({
-      basketId,
-      action: "PAID",
-      items: basket.items
-    });
+      await AuditLog.create({ basketId, action: "PAID", items: basket.items });
+    }
 
-    // Return QR data as JSON
     const qrData = JSON.stringify({
       basketId,
       total: basket.items.reduce((sum, i) => sum + i.itemPrice, 0)
