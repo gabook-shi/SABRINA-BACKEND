@@ -48,10 +48,11 @@ const Basket = mongoose.model("Basket", BasketSchema);
 const AuditLog = mongoose.model("AuditLog", AuditLogSchema);
 
 /* =========================
-   HELPER: BUILD ITEMS FROM UID LIST
+   HELPERS
 ========================= */
 function buildItemsFromUIDs(uidList) {
   const items = [];
+
   uidList.forEach(uid => {
     const product = ITEM_CATALOG[uid];
     if (product) {
@@ -62,6 +63,7 @@ function buildItemsFromUIDs(uidList) {
       });
     }
   });
+
   return items;
 }
 
@@ -71,6 +73,7 @@ function buildItemsFromUIDs(uidList) {
 app.post("/basket/update", async (req, res) => {
   try {
     const { basketId, uids } = req.body;
+
     if (!basketId || !Array.isArray(uids)) {
       return res.status(400).json({ error: "Invalid payload" });
     }
@@ -83,11 +86,7 @@ app.post("/basket/update", async (req, res) => {
       { upsert: true, new: true }
     );
 
-    await AuditLog.create({
-      basketId,
-      action: "UPDATE",
-      items
-    });
+    await AuditLog.create({ basketId, action: "UPDATE", items });
 
     res.json(basket);
   } catch (err) {
@@ -97,21 +96,16 @@ app.post("/basket/update", async (req, res) => {
 });
 
 /* =========================
-   CUSTOMER / CASHIER → GET BASKET
+   GET BASKET
 ========================= */
 app.get("/basket/:basketId", async (req, res) => {
-  try {
-    const basket = await Basket.findOne({ basketId: req.params.basketId });
-    if (!basket) return res.status(404).json({ error: "Basket not found" });
-    res.json(basket);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
+  const basket = await Basket.findOne({ basketId: req.params.basketId });
+  if (!basket) return res.status(404).json({ error: "Basket not found" });
+  res.json(basket);
 });
 
 /* =========================
-   CASHIER → CONFIRM / CANCEL
+   CONFIRM / CANCEL PAYMENT
 ========================= */
 app.post("/basket/decision", async (req, res) => {
   try {
@@ -136,7 +130,7 @@ app.post("/basket/decision", async (req, res) => {
 });
 
 /* =========================
-   CUSTOMER CHECKOUT → GENERATE QR AND MARK PAID
+   CUSTOMER CHECKOUT → RETURN BASKET ID ONLY
 ========================= */
 app.post("/basket/checkout", async (req, res) => {
   try {
@@ -148,21 +142,10 @@ app.post("/basket/checkout", async (req, res) => {
     basket.status = "PAID";
     await basket.save();
 
-    // Audit log
-    await AuditLog.create({
-      basketId,
-      action: "PAID",
-      items: basket.items
-    });
+    await AuditLog.create({ basketId, action: "PAID", items: basket.items });
 
-    // QR data includes items for cashier POS
-    const qrData = JSON.stringify({
-      basketId: basket.basketId,
-      items: basket.items,
-      total: basket.items.reduce((sum, i) => sum + i.itemPrice, 0)
-    });
-
-    res.json({ qrData });
+    // QR contains only basketId
+    res.json({ qrData: basket.basketId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -170,16 +153,11 @@ app.post("/basket/checkout", async (req, res) => {
 });
 
 /* =========================
-   OPTIONAL: VIEW AUDIT LOGS
+   VIEW AUDIT LOGS (optional)
 ========================= */
 app.get("/audit", async (req, res) => {
-  try {
-    const logs = await AuditLog.find().sort({ timestamp: -1 }).limit(100);
-    res.json(logs);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
+  const logs = await AuditLog.find().sort({ timestamp: -1 }).limit(100);
+  res.json(logs);
 });
 
 /* =========================
