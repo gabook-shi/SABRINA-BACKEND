@@ -15,7 +15,6 @@ mongoose.connect(process.env.MONGO_URI)
 
 /* =========================
    ITEM CATALOG (UID → ITEM)
-   Backend-only source of truth
 ========================= */
 const ITEM_CATALOG = {
   "935B4A05": { name: "Coca Cola 330ml", price: 35 },
@@ -52,25 +51,17 @@ const AuditLog = mongoose.model("AuditLog", AuditLogSchema);
    HELPER: BUILD ITEMS FROM UID LIST
 ========================= */
 function buildItemsFromUIDs(uidList) {
-  const items = [];
-
-  uidList.forEach(uid => {
-    const product = ITEM_CATALOG[uid];
-    if (product) {
-      items.push({
-        uidItem: uid,
-        itemName: product.name,
-        itemPrice: product.price
-      });
-    }
-  });
-
-  return items;
+  return uidList
+    .map(uid => {
+      const product = ITEM_CATALOG[uid];
+      if (!product) return null;
+      return { uidItem: uid, itemName: product.name, itemPrice: product.price };
+    })
+    .filter(Boolean);
 }
 
 /* =========================
    ESP → UPDATE BASKET
-   (Presence-based, full list every time)
 ========================= */
 app.post("/basket/update", async (req, res) => {
   try {
@@ -94,7 +85,7 @@ app.post("/basket/update", async (req, res) => {
       items
     });
 
-    res.json(basket);
+    res.status(200).json(basket);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -105,9 +96,14 @@ app.post("/basket/update", async (req, res) => {
    CASHIER → GET BASKET
 ========================= */
 app.get("/basket/:basketId", async (req, res) => {
-  const basket = await Basket.findOne({ basketId: req.params.basketId });
-  if (!basket) return res.status(404).json({ error: "Basket not found" });
-  res.json(basket);
+  try {
+    const basket = await Basket.findOne({ basketId: req.params.basketId });
+    if (!basket) return res.status(404).json({ error: "Basket not found" });
+    res.status(200).json(basket);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 /* =========================
@@ -116,7 +112,6 @@ app.get("/basket/:basketId", async (req, res) => {
 app.post("/basket/decision", async (req, res) => {
   try {
     const { basketId, paid } = req.body;
-
     const basket = await Basket.findOne({ basketId });
     if (!basket) return res.status(404).json({ error: "Basket not found" });
 
@@ -129,7 +124,7 @@ app.post("/basket/decision", async (req, res) => {
       items: basket.items
     });
 
-    res.json({ success: true });
+    res.status(200).json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -142,30 +137,25 @@ app.post("/basket/decision", async (req, res) => {
 app.post("/basket/checkout", async (req, res) => {
   try {
     const { basketId } = req.body;
-
-    // Find the basket
     const basket = await Basket.findOne({ basketId });
     if (!basket) return res.status(404).json({ error: "Basket not found" });
 
-    // Mark basket as PAID
     basket.status = "PAID";
     await basket.save();
 
-    // Create audit log
     await AuditLog.create({
       basketId,
       action: "PAID",
       items: basket.items
     });
 
-    // Generate QR data (can be JSON with basketId and total)
+    // Return QR data as JSON
     const qrData = JSON.stringify({
       basketId,
       total: basket.items.reduce((sum, i) => sum + i.itemPrice, 0)
     });
 
-    // Return QR data to frontend
-    res.json({ qrData });
+    res.status(200).json({ qrData });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -176,10 +166,14 @@ app.post("/basket/checkout", async (req, res) => {
    OPTIONAL: VIEW AUDIT LOGS
 ========================= */
 app.get("/audit", async (req, res) => {
-  const logs = await AuditLog.find().sort({ timestamp: -1 }).limit(100);
-  res.json(logs);
+  try {
+    const logs = await AuditLog.find().sort({ timestamp: -1 }).limit(100);
+    res.status(200).json(logs);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
-
 
 /* =========================
    SERVER
