@@ -6,16 +6,26 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// =======================
-// MongoDB
-// =======================
+/* =========================
+   DATABASE CONNECTION
+========================= */
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch(err => console.error("❌ MongoDB Error:", err));
 
-// =======================
-// Schemas
-// =======================
+/* =========================
+   ITEM CATALOG (UID → ITEM)
+   Backend-only source of truth
+========================= */
+const ITEM_CATALOG = {
+  "935B4A05": { name: "Coca Cola 330ml", price: 35 },
+  "C3233927": { name: "Potato Chips", price: 25 },
+  "41896316": { name: "Chocolate Bar", price: 20 }
+};
+
+/* =========================
+   SCHEMAS
+========================= */
 const BasketSchema = new mongoose.Schema({
   basketId: String,
   items: [
@@ -25,137 +35,117 @@ const BasketSchema = new mongoose.Schema({
       itemPrice: Number
     }
   ],
-  status: { type: String, default: "ACTIVE" },
-  updatedAt: { type: Date, default: Date.now }
+  status: { type: String, default: "PENDING" }
 });
 
-const AuditSchema = new mongoose.Schema({
+const AuditLogSchema = new mongoose.Schema({
+  timestamp: { type: Date, default: Date.now },
   basketId: String,
   action: String,
-  items: [
-    {
-      uidItem: String,
-      itemName: String,
-      itemPrice: Number
-    }
-  ],
-  timestamp: { type: Date, default: Date.now }
+  items: Array
 });
 
 const Basket = mongoose.model("Basket", BasketSchema);
-const AuditLog = mongoose.model("AuditLog", AuditSchema);
+const AuditLog = mongoose.model("AuditLog", AuditLogSchema);
 
-// =======================
-// Audit Helper
-// =======================
-async function logAudit(basketId, action, items = []) {
-  try {
-    await AuditLog.create({ basketId, action, items });
-  } catch (err) {
-    console.error("❌ Audit error:", err);
-  }
+/* =========================
+   HELPER: BUILD ITEMS FROM UID LIST
+========================= */
+function buildItemsFromUIDs(uidList) {
+  const items = [];
+
+  uidList.forEach(uid => {
+    const product = ITEM_CATALOG[uid];
+    if (product) {
+      items.push({
+        uidItem: uid,
+        itemName: product.name,
+        itemPrice: product.price
+      });
+    }
+  });
+
+  return items;
 }
 
-// =======================
-// 1️⃣ RFID SYNC (presence-based)
-// =======================
-app.post("/basket/sync", async (req, res) => {
-  const { basketId, items } = req.body;
+/* =========================
+   ESP → UPDATE BASKET
+   (Presence-based, full list every time)
+========================= */
+app.post("/basket/update", async (req, res) => {
+  try {
+    const { basketId, uids } = req.body;
 
-  if (!basketId || !Array.isArray(items)) {
-    return res.status(400).json({ error: "Invalid payload" });
+    if (!basketId || !Array.isArray(uids)) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    const items = buildItemsFromUIDs(uids);
+
+    const basket = await Basket.findOneAndUpdate(
+      { basketId },
+      { items, status: "PENDING" },
+      { upsert: true, new: true }
+    );
+
+    await AuditLog.create({
+      basketId,
+      action: "UPDATE",
+      items
+    });
+
+    res.json(basket);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
   }
-
-  const basket = await Basket.findOneAndUpdate(
-    { basketId },
-    {
-      items,
-      status: "ACTIVE",
-      updatedAt: new Date()
-    },
-    { upsert: true, new: true }
-  );
-
-  await logAudit(basketId, "ITEMS_SYNCED", items);
-
-  res.json(basket);
 });
 
-// =======================
-// 2️⃣ FETCH BASKET (frontend)
-// =======================
+/* =========================
+   CASHIER → GET BASKET
+========================= */
 app.get("/basket/:basketId", async (req, res) => {
-  const basket = await Basket.findOne({ basketId });
+  const basket = await Basket.findOne({ basketId: req.params.basketId });
+  if (!basket) return res.status(404).json({ error: "Basket not found" });
   res.json(basket);
 });
 
-// =======================
-// 3️⃣ CHECKOUT (generate QR payload)
-// =======================
-app.post("/basket/checkout", async (req, res) => {
-  const { basketId } = req.body;
-
-  const basket = await Basket.findOneAndUpdate(
-    { basketId },
-    { status: "CHECKOUT" },
-    { new: true }
-  );
-
-  if (!basket) return res.status(404).json({ error: "Basket not found" });
-
-  await logAudit(basketId, "CHECKOUT_STARTED", basket.items);
-
-  // QR contains only basketId (secure & small)
-  res.json({ qrData: basketId });
-});
-
-// =======================
-// 4️⃣ CASHIER DECISION
-// =======================
+/* =========================
+   CASHIER → CONFIRM / CANCEL
+========================= */
 app.post("/basket/decision", async (req, res) => {
-  const { basketId, paid } = req.body;
+  try {
+    const { basketId, paid } = req.body;
 
-  const status = paid ? "PAID" : "CANCELLED";
+    const basket = await Basket.findOne({ basketId });
+    if (!basket) return res.status(404).json({ error: "Basket not found" });
 
-  const basket = await Basket.findOneAndUpdate(
-    { basketId },
-    { status },
-    { new: true }
-  );
+    basket.status = paid ? "PAID" : "CANCELLED";
+    await basket.save();
 
-  if (!basket) return res.status(404).json({ error: "Basket not found" });
+    await AuditLog.create({
+      basketId,
+      action: paid ? "PAID" : "CANCELLED",
+      items: basket.items
+    });
 
-  await logAudit(basketId, status, basket.items);
-
-  res.json({ success: true });
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-// =======================
-// 5️⃣ AUDIT VIEWER
-// =======================
-app.get("/audit/:basketId", async (req, res) => {
-  const logs = await AuditLog.find({ basketId: req.params.basketId })
-    .sort({ timestamp: 1 });
-
+/* =========================
+   OPTIONAL: VIEW AUDIT LOGS
+========================= */
+app.get("/audit", async (req, res) => {
+  const logs = await AuditLog.find().sort({ timestamp: -1 }).limit(100);
   res.json(logs);
 });
 
-// =======================
-// 6️⃣ AUTO CLEANUP (30 mins idle)
-// =======================
-setInterval(async () => {
-  const expiry = new Date(Date.now() - 30 * 60 * 1000);
-
-  const expired = await Basket.find({
-    status: "ACTIVE",
-    updatedAt: { $lt: expiry }
-  });
-
-  for (const basket of expired) {
-    await logAudit(basket.basketId, "AUTO_CLEANUP", basket.items);
-    await basket.deleteOne();
-  }
-}, 5 * 60 * 1000);
-
-// =======================
-app.listen(3000, () => console.log("🚀 Server running"));
+/* =========================
+   SERVER
+========================= */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
