@@ -34,7 +34,8 @@ const BasketSchema = new mongoose.Schema({
     {
       uidItem: String,
       itemName: String,
-      itemPrice: Number
+      itemPrice: Number,
+      quantity: { type: Number, default: 1 } // ✅ Added quantity
     }
   ],
   status: { type: String, default: "PENDING" }
@@ -54,20 +55,25 @@ const AuditLog = mongoose.model("AuditLog", AuditLogSchema);
    HELPERS
 ========================= */
 function buildItemsFromUIDs(uidList) {
-  const items = [];
+  const itemMap = {};
 
   uidList.forEach(uid => {
     const product = ITEM_CATALOG[uid];
     if (product) {
-      items.push({
-        uidItem: uid,
-        itemName: product.name,
-        itemPrice: product.price
-      });
+      if (!itemMap[uid]) {
+        itemMap[uid] = {
+          uidItem: uid,
+          itemName: product.name,
+          itemPrice: product.price,
+          quantity: 1
+        };
+      } else {
+        itemMap[uid].quantity += 1;
+      }
     }
   });
 
-  return items;
+  return Object.values(itemMap);
 }
 
 /* =========================
@@ -141,17 +147,49 @@ app.post("/basket/checkout", async (req, res) => {
     const basket = await Basket.findOne({ basketId });
     if (!basket) return res.status(404).json({ error: "Basket not found" });
 
-    // Mark basket as PAID
     basket.status = "PAID";
     await basket.save();
 
     await AuditLog.create({ basketId, action: "PAID", items: basket.items });
 
-    // QR contains only basketId
     res.json({ qrData: basket.basketId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+/* =========================
+   UPDATE ITEM QUANTITY
+========================= */
+app.post("/basket/update-quantity", async (req, res) => {
+  try {
+    const { basketId, uidItem, delta } = req.body;
+
+    if (!basketId || !uidItem || typeof delta !== "number") {
+      return res.status(400).json({ success: false, message: "Invalid input" });
+    }
+
+    const basket = await Basket.findOne({ basketId });
+    if (!basket) return res.status(404).json({ success: false, message: "Basket not found" });
+
+    const item = basket.items.find(i => i.uidItem === uidItem);
+    if (!item) return res.status(404).json({ success: false, message: "Item not found in basket" });
+
+    item.quantity = Math.max(1, (item.quantity || 1) + delta); // Prevent quantity < 1
+
+    await basket.save();
+
+    await AuditLog.create({
+      basketId,
+      action: `QUANTITY ${delta > 0 ? "INCREASED" : "DECREASED"}`,
+      items: basket.items
+    });
+
+    res.json({ success: true, updatedItem: item });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
