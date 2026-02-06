@@ -40,6 +40,7 @@ const BasketSchema = new mongoose.Schema({
   ],
   status: { type: String, default: "PENDING" }
 });
+//This schema tells MongoDB how to store a basket: its ID, the list of items, their prices and quantities, and the basket’s current status.
 
 const AuditLogSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now },
@@ -50,6 +51,12 @@ const AuditLogSchema = new mongoose.Schema({
 
 const Basket = mongoose.model("Basket", BasketSchema);
 const AuditLog = mongoose.model("AuditLog", AuditLogSchema);
+
+//This schema records a history of actions taken on baskets, so you can track changes over time (like a logbook).
+
+//“In our backend, we use Mongoose schemas to define how data is stored in MongoDB. The Basket schema defines the structure of a customer’s basket — items, prices, quantities, and status. 
+//The AuditLog schema records every action taken on a basket, with a timestamp and snapshot of items. We then turn these schemas into models, which give us easy methods to create, read,
+//update, and delete documents in MongoDB.”
 
 /* =========================
    HELPERS
@@ -75,6 +82,8 @@ function buildItemsFromUIDs(uidList) {
 
   return Object.values(itemMap);
 }
+// “This helper function takes the raw list of scanned UIDs and builds structured basket items. It looks up each UID in our product catalog, groups duplicates together, 
+// and counts them as quantities. The result is a clean array of items with names, prices, and quantities that the backend can store and the frontend can display.”
 
 /* =========================
    ESP → UPDATE BASKET
@@ -103,6 +112,8 @@ app.post("/basket/update", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+//“This route is where the ESP updates the basket. It receives a basket ID and a list of scanned UIDs, validates them, builds item objects, and updates the basket in MongoDB. 
+// If the basket doesn’t exist, it creates one. It also logs every update in the audit trail for traceability. Finally, it returns the updated basket as JSON so the frontend stays in sync.”
 
 /* =========================
    GET BASKET
@@ -112,6 +123,9 @@ app.get("/basket/:basketId", async (req, res) => {
   if (!basket) return res.status(404).json({ error: "Basket not found" });
   res.json(basket);
 });
+
+//“This route lets the frontend or cashier system fetch the current basket by ID. It queries MongoDB for the basket, and if found, returns it as JSON. If not found, 
+// it returns a 404 error. This ensures the frontend always has the latest basket state tied to a specific customer.”
 
 /* =========================
    CONFIRM / CANCEL PAYMENT
@@ -138,6 +152,9 @@ app.post("/basket/decision", async (req, res) => {
   }
 });
 
+//“This route finalizes the basket. The cashier sends a decision — either paid or cancelled. The backend updates the basket’s status in MongoDB, 
+// logs the decision in the audit trail, and responds with success. If the basket doesn’t exist, it returns a 404, and if something fails internally, it returns a 500 error.”
+
 /* =========================
    CUSTOMER CHECKOUT → RETURN BASKET ID ONLY
 ========================= */
@@ -158,6 +175,9 @@ app.post("/basket/checkout", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+//“This route finalizes the basket. The cashier sends a decision — either paid or cancelled. The backend updates the basket’s status in MongoDB, 
+// logs the decision in the audit trail, and responds with success. If the basket doesn’t exist, it returns a 404, and if something fails internally, it returns a 500 error.”
 
 /* =========================
    UPDATE ITEM QUANTITY
@@ -192,6 +212,8 @@ app.post("/basket/update-quantity", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+//“This route lets us adjust the quantity of a specific item in a basket. The frontend sends the basket ID, the item UID, and a delta (+1 or -1). The backend finds the basket, 
+// updates the item’s quantity, ensures it never goes below 1, saves the basket, and logs the change. It responds with the updated item so the frontend can refresh immediately.”
 
 /* =========================
    VIEW AUDIT LOGS (optional)
@@ -206,3 +228,6 @@ app.get("/audit", async (req, res) => {
 ========================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+//“We added an optional /audit route to view the last 100 actions in the system, sorted by time. This is useful for debugging and transparency. 
+// Finally, we start the server on port 3000 (or whatever port the environment provides). Once the server is running, all our basket routes are live and ready to handle requests.”
