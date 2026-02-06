@@ -19,7 +19,7 @@ mongoose.connect(process.env.MONGO_URI)
 const ITEM_CATALOG = {
   "F4A5153": { name: "T-Shirt", price: 999 },
   "F1C3A60": { name: "Polo Shirt", price: 1490 },
-  "C3233927": { name: "Shorts", price: 20 },
+  "13828E14": { name: "Shorts", price: 590 },
 };
 
 /* =========================
